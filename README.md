@@ -159,8 +159,10 @@ python3 04_evaluator_optimizer.py
 
 ### What's happening
 
-- `evaluate_copy()` checks "character count" and "keyword present" in plain Python code, and only asks the LLM to judge the one criterion that's hard to check mechanically: whether the tone is positive. **Deciding what needs an LLM and what a simple check can handle is itself part of the design**
+- `evaluate_copy()` checks "character count" and "product name present" in plain Python code, and delegates two criteria that are hard to check mechanically — whether a call-to-action is present, and whether the tone is positive — to LLM judgment via `_llm_yes_no()`. **Deciding what needs an LLM and what a simple check can handle is itself part of the design**
 - On failure, the specific critique is folded into the next generation prompt
+
+> **Lesson learned from testing this locally:** an earlier version of this script checked for a call-to-action by searching for the literal words "今すぐ" / "ぜひ" in the text. That turned out to be too brittle — a local model phrases calls-to-action many different ways (e.g. "体感しよう", "手に入れよう") without ever using those exact words, so the loop kept failing and hit `max_iterations` without ever passing. Delegating that judgment to the LLM (as it already did for tone) fixed it. It's a good real-world illustration of why keyword matching is a poor substitute for semantic evaluation — and of the design tradeoff this pattern is all about.
 
 ### Try it yourself
 
@@ -212,7 +214,7 @@ Run `ollama pull qwen2.5` (or whichever model name you're using).
 Local LLM speed depends on your hardware. Steps 2 and 5 make several LLM calls each, so they take longer. A smaller model (e.g. `qwen2.5:3b`) will speed things up.
 
 **Classification or parsing isn't reliable**
-Small local models sometimes follow instructions less reliably than large hosted models. Sharpening the prompt, lowering `temperature`, or adding one example of the expected output format usually helps.
+Small local models sometimes follow instructions less reliably than large hosted models. Sharpening the prompt, lowering `temperature`, or adding one example of the expected output format usually helps. If you're checking for the presence of a concept (not an exact phrase), prefer asking the LLM to judge it over matching hardcoded keywords — see the Step 4 note above.
 
 ---
 
