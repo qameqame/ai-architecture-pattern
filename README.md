@@ -1,220 +1,224 @@
-# エージェント設計パターン チュートリアル(Ollamaローカル実行版)
+🇯🇵 日本語版はこちら → [README.ja.md](README.ja.md)
 
-Anthropicの ["Building Effective Agents"](https://www.anthropic.com/engineering/building-effective-agents) で紹介されている5つの基本パターンを、Ollamaで動くローカルLLMを使って実際に動かしながら学ぶチュートリアルです。
+# Agent Design Patterns Tutorial (Local Ollama Edition)
 
-外部APIキーは不要です。すべてお使いのマシン上のOllamaに対してリクエストを送ります。
+A hands-on tutorial for the five foundational patterns from Anthropic's ["Building Effective Agents"](https://www.anthropic.com/engineering/building-effective-agents), run entirely against a local LLM via Ollama.
 
-## このチュートリアルで学べること
+No API key is required — every script talks to Ollama running on your own machine.
 
-| # | ファイル | パターン | ひとことで言うと |
+## What you'll learn
+
+| # | File | Pattern | In one line |
 |---|---|---|---|
-| 1 | `01_prompt_chaining.py` | Prompt Chaining | タスクを順番のステップに分解し、前段の出力を次段の入力にする |
-| 2 | `02_parallelization.py` | Parallelization | 複数のLLM呼び出しを同時に走らせる(分割 / 多数決) |
-| 3 | `03_routing.py` | Routing | 入力を分類し、専門化されたハンドラーに振り分ける |
-| 4 | `04_evaluator_optimizer.py` | Evaluator-Optimizer | 生成 → 評価 → 修正 のループで品質を上げる |
-| 5 | `05_orchestrator_workers.py` | Orchestrator-Workers | 司令塔LLMがタスクを動的に分解し、複数のWorker LLMに割り振る |
+| 1 | `01_prompt_chaining.py` | Prompt Chaining | Break a task into sequential steps, each feeding the next |
+| 2 | `02_parallelization.py` | Parallelization | Run multiple LLM calls at once (sectioning / voting) |
+| 3 | `03_routing.py` | Routing | Classify input and dispatch to a specialized handler |
+| 4 | `04_evaluator_optimizer.py` | Evaluator-Optimizer | Generate → evaluate → refine in a loop until it passes |
+| 5 | `05_orchestrator_workers.py` | Orchestrator-Workers | A lead LLM dynamically breaks up work and dispatches it to worker LLMs |
 
-各ファイルは単独で実行できる独立したスクリプトです。番号順に読み進めることを推奨しますが、好きな順番で試しても問題ありません。
+Each file is a standalone, independently runnable script. Working through them in order is recommended, but feel free to jump around.
 
 ---
 
-## Step 0: 事前準備
+## Step 0: Prerequisites
 
-### 0-1. Ollamaのインストール
+### 0-1. Install Ollama
 
-まだの場合は [ollama.com](https://ollama.com) からOllamaをインストールしてください。
+If you haven't already, install Ollama from [ollama.com](https://ollama.com).
 
-### 0-2. Ollamaサーバーの起動
+### 0-2. Start the Ollama server
 
 ```bash
 ollama serve
 ```
 
-すでにバックグラウンドで起動している場合(Macのメニューバーにアイコンがある等)はこの手順は不要です。
+Skip this if Ollama is already running in the background (e.g. as a menu-bar app, or inside Docker — see the Docker note below).
 
-### 0-3. モデルのpull
+### 0-3. Pull a model
 
-このチュートリアルはデフォルトで `qwen2.5` を使う設定になっています。
+These scripts default to `qwen2.5`.
 
 ```bash
 ollama pull qwen2.5
 ```
 
-別のモデル(例: `llama3.1`, `gpt-oss:20b` など)を使いたい場合は、各`.py`ファイル冒頭にある以下の行を書き換えてください。
+To use a different model (e.g. `llama3.1`, `gpt-oss:20b`), edit this line near the top of each `.py` file:
 
 ```python
 MODEL = "qwen2.5"
 ```
 
-### 0-4. 動作確認
+### 0-4. Sanity check
 
 ```bash
-ollama run qwen2.5 "こんにちは"
+ollama run qwen2.5 "hello"
 ```
 
-応答が返ってくればセットアップは完了です。Python側は標準ライブラリ(`urllib`)だけでOllamaのREST API (`http://localhost:11434/api/chat`) を呼び出すので、追加の`pip install`は不要です。
+If you get a response, you're set. The Python side uses only the standard library (`urllib`) to call Ollama's REST API (`http://localhost:11434/api/chat`), so no `pip install` is needed.
+
+**Running Ollama in Docker?** As long as the container publishes port 11434 to the host (e.g. `-p 11434:11434` or `0.0.0.0:11434->11434/tcp` in `docker ps`), the scripts work unmodified — they just hit `localhost:11434`. To run the CLI check above, use `docker exec -it <container_name> ollama run qwen2.5 "hello"` instead of a bare `ollama run` (a bare `docker -c ollama ...` is not valid — `-c` selects a Docker *context*, not a container).
 
 ---
 
-## Step 1: Prompt Chaining(`01_prompt_chaining.py`)
+## Step 1: Prompt Chaining (`01_prompt_chaining.py`)
 
-### コンセプト
+### Concept
 
-1つの大きなタスクを、固定順序の小さなステップに分解します。各ステップの出力が次のステップの入力になります。途中に**ゲート**(プログラム的な検証)を挟み、条件を満たさなければチェーンを打ち切ることもできます。
+Decompose one big task into a fixed sequence of smaller steps. Each step's output becomes the next step's input. You can insert a **gate** (a plain, non-LLM check) partway through and abort the chain if it fails.
 
 ```
-生レビュー → [要点抽出] → [下書き作成] → [ゲート検証] → [仕上げ] → 完成コピー
+raw review → [extract key points] → [draft copy] → [gate check] → [polish] → final copy
 ```
 
-### 実行
+### Run it
 
 ```bash
 python3 01_prompt_chaining.py
 ```
 
-### 何が起きているか
+### What's happening
 
-- Step 1〜2、4はLLM呼び出し(`ollama_chat()`)
-- Step 3の`gate_check()`はLLMを使わない、ただの文字数チェック。**ゲートは必ずしもLLMである必要はない**という点がポイントです
-- ゲートで不合格になると、それ以降のステップは実行されずチェーンが中断します
+- Steps 1, 2, and 4 are LLM calls (`ollama_chat()`)
+- Step 3's `gate_check()` doesn't use the LLM at all — it's just a character-count check. The point: **a gate doesn't have to be an LLM call**
+- If the gate fails, the chain stops and later steps never run
 
-### 試してみよう
+### Try it yourself
 
-`gate_check()`の`min_length`を大きな値(例: `500`)に変えて実行し、チェーンが途中で打ち切られる様子を確認してみてください。
+Bump `gate_check()`'s `min_length` up to something large (e.g. `500`) and re-run to watch the chain get cut short.
 
 ---
 
-## Step 2: Parallelization(`02_parallelization.py`)
+## Step 2: Parallelization (`02_parallelization.py`)
 
-### コンセプト
+### Concept
 
-2つの派生パターンがあります。
+Two variants:
 
-- **Sectioning(分割)**: 独立したサブタスク(感情分析・トピック抽出・リスク検知)を同時に投げて、結果を統合する
-- **Voting(多数決)**: 同じ判定タスクを複数回実行し(temperatureを上げてばらつきを出す)、多数決で最終判断を出す
+- **Sectioning**: fire off independent subtasks (sentiment, topics, risk flags) at the same time and combine the results
+- **Voting**: run the same judgment task several times (with higher temperature for sampling variety) and take a majority vote
 
-### 実行
+### Run it
 
 ```bash
 python3 02_parallelization.py
 ```
 
-### 何が起きているか
+### What's happening
 
-`concurrent.futures.ThreadPoolExecutor`で複数のリクエストを同時に発行しています。ただし注意点として、**Ollamaはローカルの1インスタンスなので、実際の推論はサーバー側でキューイングされ、体感的には順番に処理されることが多い**です。それでも「呼び出し側のコードが並列である」という構造自体は体験できます。
+`concurrent.futures.ThreadPoolExecutor` fires several requests concurrently. Note that **Ollama is a single local instance, so the actual inference is usually queued server-side and processed close to sequentially in practice** — but the calling code's structure is genuinely parallel, which is the point of the exercise.
 
-### 試してみよう
+### Try it yourself
 
-`voting_demo()`の`n_votes`を増やしてみたり、`classify_harmful()`の`temperature`を`0.0`に下げてみて、多数決の結果(バラつき方)がどう変わるか比べてみてください。
+Increase `n_votes` in `voting_demo()`, or lower `classify_harmful()`'s `temperature` to `0.0`, and compare how much the votes vary.
 
 ---
 
-## Step 3: Routing(`03_routing.py`)
+## Step 3: Routing (`03_routing.py`)
 
-### コンセプト
+### Concept
 
-入力をまず分類し、その結果に応じて専門化されたプロンプト(≒担当者)に振り分けます。1つの万能プロンプトに全部やらせるより、カテゴリごとに最適化したほうが精度が上がりやすい、という考え方です。
+Classify the input first, then dispatch to a handler specialized for that category. The idea: a handler tuned for one category tends to beat a single do-everything prompt.
 
 ```
-問い合わせ → [分類器] → billing / technical / account / other → 専門ハンドラー
+ticket → [classifier] → billing / technical / account / other → specialized handler
 ```
 
-### 実行
+### Run it
 
 ```bash
 python3 03_routing.py
 ```
 
-### 何が起きているか
+### What's happening
 
-- `classify_ticket()`が分類専用のプロンプトでカテゴリを判定
-- 各`handle_*()`関数は、カテゴリに応じた異なる`system`プロンプトでLLMを呼び出す(=同じLLMでも役割を変えて使う)
+- `classify_ticket()` uses a classification-only prompt to pick a category
+- Each `handle_*()` function calls the LLM with a different `system` prompt tailored to that category (same model, different role)
 
-### 試してみよう
+### Try it yourself
 
-`tickets`リストに自分で新しい問い合わせ文を追加し、意図通りに分類されるか確認してみてください。分類がうまくいかない場合は`classify_ticket()`のプロンプトを調整すると精度改善を体感できます。
+Add your own ticket text to the `tickets` list and check whether it's classified as you'd expect. If it's not, tightening the prompt in `classify_ticket()` is a good way to feel the effect of prompt tuning.
 
 ---
 
-## Step 4: Evaluator-Optimizer Workflow(`04_evaluator_optimizer.py`)
+## Step 4: Evaluator-Optimizer Workflow (`04_evaluator_optimizer.py`)
 
-### コンセプト
+### Concept
 
-1つのLLM(Generator)が出力を作り、別の視点(Evaluator)がそれを評価してフィードバックを返します。基準を満たすまで「生成 → 評価 → 修正」のループを繰り返します。
+One LLM (the Generator) produces an output; a separate pass (the Evaluator) critiques it and returns feedback. The loop — generate → evaluate → revise — repeats until the output passes.
 
 ```
-生成 → 評価 ─┬─ 合格 → 終了
-             └─ 不合格 → フィードバックを添えて再生成 → 評価 → …
+generate → evaluate ─┬─ pass → done
+                      └─ fail → regenerate with feedback → evaluate → …
 ```
 
-### 実行
+### Run it
 
 ```bash
 python3 04_evaluator_optimizer.py
 ```
 
-### 何が起きているか
+### What's happening
 
-- `evaluate_copy()`は「文字数」「キーワード含有」はプログラムで機械的にチェックし、「トーンが前向きか」だけLLMに判定させています。**判定基準によってLLMを使うかコードで済ませるかを使い分けている**点がポイントです
-- 不合格の場合、具体的な指摘(フィードバック)を次の生成プロンプトに埋め込み、再生成させています
+- `evaluate_copy()` checks "character count" and "keyword present" in plain Python code, and only asks the LLM to judge the one criterion that's hard to check mechanically: whether the tone is positive. **Deciding what needs an LLM and what a simple check can handle is itself part of the design**
+- On failure, the specific critique is folded into the next generation prompt
 
-### 試してみよう
+### Try it yourself
 
-`max_iterations`を`1`にしてみると、1回で基準を満たせなかった場合にどうなるか確認できます。また`evaluate_copy()`に新しいチェック項目(例: 絵文字を含めない、等)を追加してみてください。
+Set `max_iterations` to `1` and see what happens when the first attempt doesn't pass. Then add a new check to `evaluate_copy()` (e.g. "no emoji allowed").
 
 ---
 
-## Step 5: Orchestrator-Workers Workflow(`05_orchestrator_workers.py`)
+## Step 5: Orchestrator-Workers Workflow (`05_orchestrator_workers.py`)
 
-### コンセプト
+### Concept
 
-中央のOrchestrator(LLM)が、タスク内容に応じて**動的に**サブタスクを分解します(Step 2のSectioningとの違いは、サブタスクの内容や数が事前に固定されていない点です)。各サブタスクはWorker(LLM)に振られ並列に実行され、最後にOrchestratorが結果を統合します。
+A central Orchestrator (LLM) **dynamically** breaks the task into subtasks based on the input (unlike Step 2's Sectioning, the subtasks aren't fixed in advance — their number and content vary). Each subtask goes to a Worker (LLM), run in parallel, and the Orchestrator synthesizes the results at the end.
 
 ```
-トピック → [Orchestrator: 計画] → セクション一覧(動的に決定)
-                                      ↓ 並列ディスパッチ
-                    Worker1  Worker2  Worker3  Worker4
-                       ↓        ↓        ↓        ↓
-                    [Orchestrator: 統合] → 最終レポート
+topic → [Orchestrator: plan] → section list (decided dynamically)
+                                     ↓ dispatch in parallel
+                  Worker1  Worker2  Worker3  Worker4
+                     ↓        ↓        ↓        ↓
+                  [Orchestrator: synthesize] → final report
 ```
 
-### 実行
+### Run it
 
 ```bash
 python3 05_orchestrator_workers.py
 ```
 
-### 何が起きているか
+### What's happening
 
-- `orchestrator_plan()`がトピックを見て必要なセクション見出しをLLMに考えさせ、その出力をパースしてリスト化
-- `worker()`が各セクションを並列に執筆
-- `orchestrator_synthesize()`が結果をまとめて最終レポートに整形
+- `orchestrator_plan()` asks the LLM to propose section headings for the given topic, then parses that output into a list
+- `worker()` drafts each section in parallel
+- `orchestrator_synthesize()` assembles everything into the final report
 
-### 試してみよう
+### Try it yourself
 
-`run_orchestrator_workers()`に渡すトピックを変えて(例: `"ダイエットの科学"`など)、Orchestratorが毎回異なるセクション構成を動的に考える様子を確認してみてください。
-
----
-
-## トラブルシューティング
-
-**`Ollamaに接続できませんでした` というエラーが出る**
-`ollama serve`が起動しているか確認してください。別のターミナルで`ollama run qwen2.5 "test"`が動くか試すと切り分けやすいです。
-
-**モデルが見つからないというエラーが出る**
-`ollama pull qwen2.5`(または使いたいモデル名)を実行してください。
-
-**応答が遅い**
-ローカルLLMはハードウェア性能に依存します。特にStep 2やStep 5は複数回LLMを呼ぶため時間がかかります。より軽量なモデル(例: `qwen2.5:3b`など)に変更すると速くなります。
-
-**分類やパースがうまくいかない**
-ローカルの小型モデルは指示追従性がAPIの大型モデルほど高くない場合があります。プロンプトをより明確にする、`temperature`を下げる、出力フォーマットの例を1つ添える、といった調整で改善します。
+Change the topic passed to `run_orchestrator_workers()` (e.g. `"the science of dieting"`) and watch the Orchestrator come up with a different section structure each time.
 
 ---
 
-## 次のステップ: 実際のAnthropic APIに切り替える
+## Troubleshooting
 
-各ファイルの`ollama_chat()`をAnthropic APIの呼び出しに差し替えることで、同じパターン構造のままクラウドの大規模モデルに切り替えられます。
+**"Could not connect to Ollama" error**
+Make sure `ollama serve` is running. Try `ollama run qwen2.5 "test"` in another terminal to isolate the problem.
+
+**Model not found error**
+Run `ollama pull qwen2.5` (or whichever model name you're using).
+
+**Responses are slow**
+Local LLM speed depends on your hardware. Steps 2 and 5 make several LLM calls each, so they take longer. A smaller model (e.g. `qwen2.5:3b`) will speed things up.
+
+**Classification or parsing isn't reliable**
+Small local models sometimes follow instructions less reliably than large hosted models. Sharpening the prompt, lowering `temperature`, or adding one example of the expected output format usually helps.
+
+---
+
+## Next step: swap in the real Anthropic API
+
+Replace `ollama_chat()` in any file with an Anthropic API call and the same pattern structure keeps working against a larger, cloud-hosted model:
 
 ```python
 from anthropic import Anthropic
@@ -230,9 +234,9 @@ def call_llm(prompt: str, system: str | None = None) -> str:
     return resp.content[0].text
 ```
 
-パターンの制御フロー(チェーン・並列・分岐・評価ループ・動的分解)自体はモデルに依存しないので、ここまでのコードはほぼそのまま使えます。
+The control flow of each pattern — chaining, parallelizing, branching, evaluate-loop, dynamic decomposition — is model-agnostic, so almost everything else stays the same.
 
-## 参考
+## References
 
 - Anthropic, "Building Effective Agents": https://www.anthropic.com/engineering/building-effective-agents
-- Ollama公式ドキュメント: https://github.com/ollama/ollama/blob/main/docs/api.md
+- Ollama API docs: https://github.com/ollama/ollama/blob/main/docs/api.md
