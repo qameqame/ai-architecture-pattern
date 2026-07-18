@@ -15,6 +15,7 @@ Anthropicの ["Building Effective Agents"](https://www.anthropic.com/engineering
 | 3 | `03_routing.py` | Routing | 入力を分類し、専門化されたハンドラーに振り分ける |
 | 4 | `04_evaluator_optimizer.py` | Evaluator-Optimizer | 生成 → 評価 → 修正 のループで品質を上げる |
 | 5 | `05_orchestrator_workers.py` | Orchestrator-Workers | 司令塔LLMがタスクを動的に分解し、複数のWorker LLMに割り振る |
+| 6 | `06_agentic_loop.py` | Agentic Loop | どのツールを・どの順で・いつまで呼ぶかをLLM自身が判断する |
 
 各ファイルは単独で実行できる独立したスクリプトです。番号順に読み進めることを推奨しますが、好きな順番で試しても問題ありません。
 
