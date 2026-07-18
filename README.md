@@ -15,6 +15,7 @@ No API key is required — every script talks to Ollama running on your own mach
 | 3 | `03_routing.py` | Routing | Classify input and dispatch to a specialized handler |
 | 4 | `04_evaluator_optimizer.py` | Evaluator-Optimizer | Generate → evaluate → refine in a loop until it passes |
 | 5 | `05_orchestrator_workers.py` | Orchestrator-Workers | A lead LLM dynamically breaks up work and dispatches it to worker LLMs |
+| 6 | `06_agentic_loop.py` | Agentic Loop | The LLM itself decides which tools to call, in what order, and when to stop |
 
 Each file is a standalone, independently runnable script. Working through them in order is recommended, but feel free to jump around.
 
@@ -199,6 +200,42 @@ python3 05_orchestrator_workers.py
 ### Try it yourself
 
 Change the topic passed to `run_orchestrator_workers()` (e.g. `"the science of dieting"`) and watch the Orchestrator come up with a different section structure each time.
+
+---
+
+## Step 6: Agentic Loop (`06_agentic_loop.py`)
+
+### Concept
+
+This one is different in kind from Steps 1–5. Those were all **Workflows**: your code decided the order of operations ahead of time (a fixed chain, a fixed set of parallel branches, a fixed routing table, a fixed generate/evaluate loop, a plan-then-dispatch sequence). Here, the LLM decides the control flow itself, turn by turn:
+
+```
+[LLM decides: do I need a tool?] ─┬─ yes → call tool → see result (environment feedback) ─┐
+                                   │                                                        │
+                                   └─ no → final answer                                     │
+                                        ▲                                                   │
+                                        └───────────────────── loop back ────────────────────┘
+```
+
+At each step the model can call zero or more tools, see their real output, and decide what to do next — including deciding it's done. Your code only supplies the tools and a safety valve (`max_steps`) to stop runaway loops.
+
+### Run it
+
+```bash
+python3 06_agentic_loop.py
+```
+
+### What's happening
+
+- Three tools are exposed to the model: `calculator` (a restricted, `ast`-based expression evaluator — not a raw `eval`, since tool inputs are LLM-generated and untrusted), `lookup_fact` (a tiny in-memory knowledge base), and `get_text_length`
+- `run_agent()` sends the conversation to Ollama with `tools` attached. If the model's response includes `tool_calls`, the code executes them and appends the results back into the conversation as `role: "tool"` messages, then calls the model again. If the response has no `tool_calls`, that's the model signaling it's done — the loop ends
+- Scenario 1 asks a question that requires chaining two tools (`lookup_fact` then `calculator`) in an order **not specified anywhere in the code** — the model works that out on its own
+- Scenario 2 asks about something that isn't in the knowledge base, so `lookup_fact` returns "not found." Watch how the model reacts to that failure — this is the "environment feedback" half of the loop, and it's exactly the kind of thing a fixed workflow can't do, because a workflow's next step doesn't depend on what a tool actually returned
+- `max_steps` is the safety valve: a real agent can call tools indefinitely if it never converges. Local models in particular can be less reliable than large hosted ones at recognizing "I'm done"
+
+### Try it yourself
+
+Lower `max_steps` to `1` and watch the loop get cut off mid-task. Then add a fourth tool (e.g. a `get_current_year` tool) and ask a question that requires it — no other code changes needed, since the model decides on its own when to reach for a new tool.
 
 ---
 
