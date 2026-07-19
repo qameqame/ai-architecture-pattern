@@ -2,9 +2,11 @@
 
 # エージェント設計パターン チュートリアル(Ollamaローカル実行版)
 
-Anthropicの ["Building Effective Agents"](https://www.anthropic.com/engineering/building-effective-agents) で紹介されている5つの基本パターンを、Ollamaで動くローカルLLMを使って実際に動かしながら学ぶチュートリアルです。
+Anthropicの ["Building Effective Agents"](https://www.anthropic.com/engineering/building-effective-agents) で紹介されているパターンを、Ollamaで動くローカルLLMを使って実際に動かしながら学ぶチュートリアルです。
 
 外部APIキーは不要です。すべてお使いのマシン上のOllamaに対してリクエストを送ります。
+
+Anthropicの記事は2種類のシステムを区別しています。**Workflow**(制御フロー=何をどの順で実行するかをコード側が事前に決める)と、**Agent**(制御フローそのものをLLMがランタイムで決め、ツールを呼びその結果を見ながらループする)です。このチュートリアルは5つのWorkflowパターン(Step 1〜5)と、Agentパターン自体(Step 6)をカバーしています。
 
 ## このチュートリアルで学べること
 
@@ -48,6 +50,8 @@ ollama pull qwen2.5
 ```python
 MODEL = "qwen2.5"
 ```
+
+Step 6(`06_agentic_loop.py`)だけは、OllamaでTool Calling(ツール呼び出し)に対応したモデルが必要です。`qwen2.5` / `llama3.1` / `mistral-nemo` などが対応しています。
 
 ### 0-4. 動作確認
 
@@ -209,12 +213,12 @@ python3 05_orchestrator_workers.py
 
 これはStep 1〜5とは種類が異なります。それらはすべて**Workflow**——コード側が処理の順序(固定のチェーン、固定の並列分岐、固定のルーティング表、固定の生成/評価ループ、計画してから配布する固定の手順)をあらかじめ決めていました。ここでは、LLM自身が1ターンごとに制御フローを決定します。
 
-```
-[LLMが判断: ツールが必要か?] ─┬─ 必要 → ツール実行 → 結果を見る(環境フィードバック) ─┐
-                              │                                                        │
-                              └─ 不要 → 最終回答                                        │
-                                   ▲                                                   │
-                                   └───────────────────── ループして戻る ────────────────┘
+```mermaid
+flowchart LR
+    A["LLMが判断:<br/>ツールが必要か?"] -- 必要 --> B[ツール実行]
+    B --> C["結果を見る<br/>(環境フィードバック)"]
+    C -- ループして戻る --> A
+    A -- 不要 --> D[最終回答]
 ```
 
 各ステップでモデルは0個以上のツールを呼び出し、その実際の結果を見て、次に何をするか(=終わったかどうかも含めて)を判断します。コード側が用意するのは、使えるツールと、暴走を止める安全装置(`max_steps`)だけです。
@@ -248,16 +252,19 @@ python3 06_agentic_loop.py
 `ollama pull qwen2.5`(または使いたいモデル名)を実行してください。
 
 **応答が遅い**
-ローカルLLMはハードウェア性能に依存します。特にStep 2やStep 5は複数回LLMを呼ぶため時間がかかります。より軽量なモデル(例: `qwen2.5:3b`など)に変更すると速くなります。
+ローカルLLMはハードウェア性能に依存します。特にStep 2、5、6は複数回LLMを呼ぶため時間がかかります。より軽量なモデル(例: `qwen2.5:3b`など)に変更すると速くなります。
 
 **分類やパースがうまくいかない**
 ローカルの小型モデルは指示追従性がAPIの大型モデルほど高くない場合があります。プロンプトをより明確にする、`temperature`を下げる、出力フォーマットの例を1つ添える、といった調整で改善します。特定の概念の有無(厳密な単語一致ではなく)を判定したい場合は、固定キーワードと照合するよりLLMに判定させる方が安定します(上記Step 4の補足参照)。
+
+**Step 6で「does not support tools」のようなエラーが出る**
+すべてのOllamaモデルがTool Callingに対応しているわけではありません。`MODEL`を`qwen2.5` / `llama3.1` / `mistral-nemo`に切り替えてください。
 
 ---
 
 ## 次のステップ: 実際のAnthropic APIに切り替える
 
-各ファイルの`ollama_chat()`をAnthropic APIの呼び出しに差し替えることで、同じパターン構造のままクラウドの大規模モデルに切り替えられます。
+各ファイルの`ollama_chat()`(Step 6では`ollama_chat_with_tools()`)をAnthropic APIの呼び出しに差し替えることで、同じパターン構造のままクラウドの大規模モデルに切り替えられます。
 
 ```python
 from anthropic import Anthropic
@@ -273,9 +280,10 @@ def call_llm(prompt: str, system: str | None = None) -> str:
     return resp.content[0].text
 ```
 
-パターンの制御フロー(チェーン・並列・分岐・評価ループ・動的分解)自体はモデルに依存しないので、ここまでのコードはほぼそのまま使えます。
+パターンの制御フロー(チェーン・並列・分岐・評価ループ・動的分解・エージェンティックなツールループ)自体はモデルに依存しないので、ここまでのコードはほぼそのまま使えます。
 
 ## 参考
 
 - Anthropic, "Building Effective Agents": https://www.anthropic.com/engineering/building-effective-agents
 - Ollama公式ドキュメント: https://github.com/ollama/ollama/blob/main/docs/api.md
+- Ollama Tool Calling: https://ollama.com/blog/tool-support

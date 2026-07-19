@@ -2,9 +2,11 @@
 
 # Agent Design Patterns Tutorial (Local Ollama Edition)
 
-A hands-on tutorial for the five foundational patterns from Anthropic's ["Building Effective Agents"](https://www.anthropic.com/engineering/building-effective-agents), run entirely against a local LLM via Ollama.
+A hands-on tutorial for the patterns from Anthropic's ["Building Effective Agents"](https://www.anthropic.com/engineering/building-effective-agents), run entirely against a local LLM via Ollama.
 
 No API key is required — every script talks to Ollama running on your own machine.
+
+Anthropic's article draws a line between two kinds of systems: **Workflows**, where the control flow (what runs, in what order) is decided by your code ahead of time, and **Agents**, where the LLM itself decides the control flow at runtime, calling tools and reacting to their output in a loop. This tutorial covers five workflow patterns (Steps 1–5) plus the agent pattern itself (Step 6).
 
 ## What you'll learn
 
@@ -48,6 +50,8 @@ To use a different model (e.g. `llama3.1`, `gpt-oss:20b`), edit this line near t
 ```python
 MODEL = "qwen2.5"
 ```
+
+Note: Step 6 (`06_agentic_loop.py`) requires a model with **tool calling** support in Ollama. `qwen2.5`, `llama3.1`, and `mistral-nemo` all work; not every model does.
 
 ### 0-4. Sanity check
 
@@ -209,12 +213,12 @@ Change the topic passed to `run_orchestrator_workers()` (e.g. `"the science of d
 
 This one is different in kind from Steps 1–5. Those were all **Workflows**: your code decided the order of operations ahead of time (a fixed chain, a fixed set of parallel branches, a fixed routing table, a fixed generate/evaluate loop, a plan-then-dispatch sequence). Here, the LLM decides the control flow itself, turn by turn:
 
-```
-[LLM decides: do I need a tool?] ─┬─ yes → call tool → see result (environment feedback) ─┐
-                                   │                                                        │
-                                   └─ no → final answer                                     │
-                                        ▲                                                   │
-                                        └───────────────────── loop back ────────────────────┘
+```mermaid
+flowchart LR
+    A["LLM decides:<br/>do I need a tool?"] -- yes --> B[Call tool]
+    B --> C["See result<br/>(environment feedback)"]
+    C -- loop back --> A
+    A -- no --> D[Final answer]
 ```
 
 At each step the model can call zero or more tools, see their real output, and decide what to do next — including deciding it's done. Your code only supplies the tools and a safety valve (`max_steps`) to stop runaway loops.
@@ -248,16 +252,19 @@ Make sure `ollama serve` is running. Try `ollama run qwen2.5 "test"` in another 
 Run `ollama pull qwen2.5` (or whichever model name you're using).
 
 **Responses are slow**
-Local LLM speed depends on your hardware. Steps 2 and 5 make several LLM calls each, so they take longer. A smaller model (e.g. `qwen2.5:3b`) will speed things up.
+Local LLM speed depends on your hardware. Steps 2, 5, and 6 make several LLM calls each, so they take longer. A smaller model (e.g. `qwen2.5:3b`) will speed things up.
 
 **Classification or parsing isn't reliable**
 Small local models sometimes follow instructions less reliably than large hosted models. Sharpening the prompt, lowering `temperature`, or adding one example of the expected output format usually helps. If you're checking for the presence of a concept (not an exact phrase), prefer asking the LLM to judge it over matching hardcoded keywords — see the Step 4 note above.
+
+**Step 6 errors with something like "does not support tools"**
+Not every Ollama model supports tool calling. Switch `MODEL` to `qwen2.5`, `llama3.1`, or `mistral-nemo`.
 
 ---
 
 ## Next step: swap in the real Anthropic API
 
-Replace `ollama_chat()` in any file with an Anthropic API call and the same pattern structure keeps working against a larger, cloud-hosted model:
+Replace `ollama_chat()` (or `ollama_chat_with_tools()` in Step 6) in any file with an Anthropic API call and the same pattern structure keeps working against a larger, cloud-hosted model:
 
 ```python
 from anthropic import Anthropic
@@ -273,9 +280,10 @@ def call_llm(prompt: str, system: str | None = None) -> str:
     return resp.content[0].text
 ```
 
-The control flow of each pattern — chaining, parallelizing, branching, evaluate-loop, dynamic decomposition — is model-agnostic, so almost everything else stays the same.
+The control flow of each pattern — chaining, parallelizing, branching, evaluate-loop, dynamic decomposition, and the agentic tool loop — is model-agnostic, so almost everything else stays the same.
 
 ## References
 
 - Anthropic, "Building Effective Agents": https://www.anthropic.com/engineering/building-effective-agents
 - Ollama API docs: https://github.com/ollama/ollama/blob/main/docs/api.md
+- Ollama tool calling docs: https://ollama.com/blog/tool-support
