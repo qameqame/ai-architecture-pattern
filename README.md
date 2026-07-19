@@ -108,29 +108,29 @@ Parallelization runs multiple LLM calls at the same time instead of one after an
 - **Sectioning**: fire off independent subtasks (sentiment, topics, risk flags) at the same time and combine the results
 - **Voting**: run the same judgment task several times (with higher temperature for sampling variety) and take a majority vote
 
-```mermaid
-flowchart LR
-    subgraph Sectioning
-        A1[Review] --> B1[Sentiment]
-        A1 --> C1[Topics]
-        A1 --> D1[Risk flags]
-        B1 --> E1[Combined report]
-        C1 --> E1
-        D1 --> E1
-    end
-```
+**Sectioning:**
 
 ```mermaid
 flowchart LR
-    subgraph Voting
-        A2[Text] --> B2[Attempt 1]
-        A2 --> C2[Attempt 2]
-        A2 --> D2[Attempt 3]
-        B2 --> E2{Majority vote}
-        C2 --> E2
-        D2 --> E2
-        E2 --> F2[Final judgment]
-    end
+    A1[Review] --> B1[Sentiment]
+    A1 --> C1[Topics]
+    A1 --> D1[Risk flags]
+    B1 --> E1[Combined report]
+    C1 --> E1
+    D1 --> E1
+```
+
+**Voting:**
+
+```mermaid
+flowchart LR
+    A2[Text] --> B2[Attempt 1]
+    A2 --> C2[Attempt 2]
+    A2 --> D2[Attempt 3]
+    B2 --> E2{Majority vote}
+    C2 --> E2
+    D2 --> E2
+    E2 --> F2[Final judgment]
 ```
 
 ### Run it
