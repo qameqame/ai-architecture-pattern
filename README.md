@@ -71,8 +71,14 @@ If you get a response, you're set. The Python side uses only the standard librar
 
 Decompose one big task into a fixed sequence of smaller steps. Each step's output becomes the next step's input. You can insert a **gate** (a plain, non-LLM check) partway through and abort the chain if it fails.
 
-```
-raw review → [extract key points] → [draft copy] → [gate check] → [polish] → final copy
+```mermaid
+flowchart LR
+    A[Raw review] --> B[Extract key points]
+    B --> C[Draft copy]
+    C --> D{Gate check}
+    D -- pass --> E[Polish]
+    E --> F[Final copy]
+    D -- fail --> G[Chain stops]
 ```
 
 ### Run it
@@ -97,10 +103,35 @@ Bump `gate_check()`'s `min_length` up to something large (e.g. `500`) and re-run
 
 ### Concept
 
-Two variants:
+Parallelization runs multiple LLM calls at the same time instead of one after another — either to cut down wall-clock latency, or to make the result more robust by sampling several independent attempts instead of trusting a single one. Two common variants build on this idea:
 
 - **Sectioning**: fire off independent subtasks (sentiment, topics, risk flags) at the same time and combine the results
 - **Voting**: run the same judgment task several times (with higher temperature for sampling variety) and take a majority vote
+
+```mermaid
+flowchart LR
+    subgraph Sectioning
+        A1[Review] --> B1[Sentiment]
+        A1 --> C1[Topics]
+        A1 --> D1[Risk flags]
+        B1 --> E1[Combined report]
+        C1 --> E1
+        D1 --> E1
+    end
+```
+
+```mermaid
+flowchart LR
+    subgraph Voting
+        A2[Text] --> B2[Attempt 1]
+        A2 --> C2[Attempt 2]
+        A2 --> D2[Attempt 3]
+        B2 --> E2{Majority vote}
+        C2 --> E2
+        D2 --> E2
+        E2 --> F2[Final judgment]
+    end
+```
 
 ### Run it
 
@@ -124,8 +155,13 @@ Increase `n_votes` in `voting_demo()`, or lower `classify_harmful()`'s `temperat
 
 Classify the input first, then dispatch to a handler specialized for that category. The idea: a handler tuned for one category tends to beat a single do-everything prompt.
 
-```
-ticket → [classifier] → billing / technical / account / other → specialized handler
+```mermaid
+flowchart LR
+    A[Ticket] --> B{Classifier}
+    B -- billing --> C[Billing handler]
+    B -- technical --> D[Technical handler]
+    B -- account --> E[Account handler]
+    B -- other --> F[Other handler]
 ```
 
 ### Run it
@@ -151,9 +187,12 @@ Add your own ticket text to the `tickets` list and check whether it's classified
 
 One LLM (the Generator) produces an output; a separate pass (the Evaluator) critiques it and returns feedback. The loop — generate → evaluate → revise — repeats until the output passes.
 
-```
-generate → evaluate ─┬─ pass → done
-                      └─ fail → regenerate with feedback → evaluate → …
+```mermaid
+flowchart LR
+    A[Generate] --> B{Evaluate}
+    B -- pass --> C[Done]
+    B -- fail --> D["Regenerate with feedback"]
+    D --> B
 ```
 
 ### Run it
@@ -181,12 +220,18 @@ Set `max_iterations` to `1` and see what happens when the first attempt doesn't 
 
 A central Orchestrator (LLM) **dynamically** breaks the task into subtasks based on the input (unlike Step 2's Sectioning, the subtasks aren't fixed in advance — their number and content vary). Each subtask goes to a Worker (LLM), run in parallel, and the Orchestrator synthesizes the results at the end.
 
-```
-topic → [Orchestrator: plan] → section list (decided dynamically)
-                                     ↓ dispatch in parallel
-                  Worker1  Worker2  Worker3  Worker4
-                     ↓        ↓        ↓        ↓
-                  [Orchestrator: synthesize] → final report
+```mermaid
+flowchart LR
+    A[Topic] --> B["Orchestrator: plan<br/>(section list, decided dynamically)"]
+    B --> C1[Worker 1]
+    B --> C2[Worker 2]
+    B --> C3[Worker 3]
+    B --> C4[Worker 4]
+    C1 --> D["Orchestrator: synthesize"]
+    C2 --> D
+    C3 --> D
+    C4 --> D
+    D --> E[Final report]
 ```
 
 ### Run it
